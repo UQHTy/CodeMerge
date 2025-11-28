@@ -1,0 +1,3 @@
+# ninja log v5
+1	6687	1744982100445453070	/home/huitong/YHDiskB/code/end-to-end/test/SparseDrive/projects/mmdet3d_plugin/ops/build/temp.linux-x86_64-3.8/src/deformable_aggregation_cuda.o	fb4264ad9a37522c
+0	11019	1744982104773437077	/home/huitong/YHDiskB/code/end-to-end/test/SparseDrive/projects/mmdet3d_plugin/ops/build/temp.linux-x86_64-3.8/src/deformable_aggregation.o	74af12584898eb04

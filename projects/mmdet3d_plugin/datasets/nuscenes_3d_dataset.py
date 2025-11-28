@@ -332,7 +332,7 @@ class NuScenes3DDataset(Dataset):
             cam_intrinsic = []
             for cam_type, cam_info in info["cams"].items():
                 # image_paths.append(cam_info["data_path"])
-                type ="ColorQuant"
+                type ="CameraCrash/"
                 severity = "hard"
                 # print("cam_info['data_path']==",cam_info['data_path'])
                 image_paths.append(cam_info['data_path'].replace('samples', "image_c/"+type+"/"+severity))

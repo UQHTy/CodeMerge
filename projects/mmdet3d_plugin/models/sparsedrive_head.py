@@ -77,10 +77,10 @@ class SparseDriveHead(BaseModule):
             loss_det = self.det_head.loss(det_output, data)
             losses.update(loss_det)
         
-        if self.task_config['with_map']:
-            breakpoint()
-            loss_map = self.map_head.loss(map_output, data)
-            losses.update(loss_map)
+        # if self.task_config['with_map']:
+        #     breakpoint()
+        #     loss_map = self.map_head.loss(map_output, data)
+        #     losses.update(loss_map)
 
         # if self.task_config['with_motion_plan']:
         #     motion_loss_cache = dict(

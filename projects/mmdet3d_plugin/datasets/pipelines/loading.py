@@ -39,7 +39,6 @@ class LoadMultiViewImageFromFiles(object):
                 - img_norm_cfg (dict): Normalization configuration of images.
         """
         filename = results["img_filename"]
-        
         # img is of shape (h, w, c, num_views)
         img = np.stack(
             [mmcv.imread(name, self.color_type) for name in filename], axis=-1

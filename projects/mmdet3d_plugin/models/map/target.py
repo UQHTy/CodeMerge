@@ -36,45 +36,6 @@ class SparsePoint3DTarget(BaseTargetWithDenoising):
         self.num_cls = num_cls
         self.num_sample = num_sample
         self.roi_size = roi_size
-        self.coords_dim = 2
-
-
-    def permute_line(self, line: np.ndarray, padding=1e5):
-        '''
-        (num_pts, 2) -> (num_permute, num_pts, 2)
-        where num_permute = 2 * (num_pts - 1)
-        '''
-        # breakpoint()    
-        is_closed = np.allclose(line[0], line[-1], atol=1e-3)
-        num_points = len(line)
-        permute_num = num_points - 1
-        permute_lines_list = []
-        if is_closed:
-            pts_to_permute = line[:-1, :] # throw away replicate start end pts
-            for shift_i in range(permute_num):
-                permute_lines_list.append(np.roll(pts_to_permute, shift_i, axis=0))
-            flip_pts_to_permute = np.flip(pts_to_permute, axis=0)
-            for shift_i in range(permute_num):
-                permute_lines_list.append(np.roll(flip_pts_to_permute, shift_i, axis=0))
-        else:
-            permute_lines_list.append(line)
-            permute_lines_list.append(np.flip(line, axis=0))
-
-        permute_lines_array = np.stack(permute_lines_list, axis=0)
-
-        if is_closed:
-            tmp = np.zeros((permute_num * 2, num_points, self.coords_dim))
-            tmp[:, :-1, :] = permute_lines_array
-            tmp[:, -1, :] = permute_lines_array[:, 0, :] # add replicate start end pts
-            permute_lines_array = tmp
-
-        else:
-            # padding
-            padding = np.full([permute_num * 2 - 2, num_points, self.coords_dim], padding)
-            permute_lines_array = np.concatenate((permute_lines_array, padding), axis=0)
-        
-        return permute_lines_array
-
 
     def sample(
         self,
@@ -83,22 +44,8 @@ class SparsePoint3DTarget(BaseTargetWithDenoising):
         cls_targets,
         pts_targets,
     ):
-        breakpoint()
-        new_pts_targets = []
-        for i in range(len(pts_targets)):
-            new_permute = []
-            for j in range(len(pts_targets[i])):
-                
-                permute_tensor  = torch.from_numpy(self.permute_line(pts_targets[i][j].cpu().numpy()))
-                permute_tensor = permute_tensor.to(pts_targets[i][j].dtype).to(pts_targets[i][j].device)
-                new_permute.append(permute_tensor)
-            pts = torch.stack(new_permute,dim=0)
-            new_pts_targets.append(pts)
-        # breakpoint()
-        # pts = [torch.stack(new_pts_targets,dim=0)]
-        pts_targets  = [x.flatten(2, 3) if len(x.shape)==4 else x for x in new_pts_targets]
+        pts_targets  = [x.flatten(2, 3) if len(x.shape)==4 else x for x in pts_targets]
         indices = []
-        breakpoint()
         for(cls_pred, pts_pred, cls_target, pts_target) in zip(
             cls_preds, pts_preds, cls_targets, pts_targets
         ):
@@ -107,10 +54,9 @@ class SparsePoint3DTarget(BaseTargetWithDenoising):
             pts_target = self.normalize_line(pts_target)
             preds=dict(lines=pts_pred, scores=cls_pred)
             gts=dict(lines=pts_target, labels=cls_target)
-            breakpoint()
             indice = self.assigner.assign(preds, gts)
             indices.append(indice)
-        breakpoint()
+        
         bs, num_pred, num_cls = cls_preds.shape
         output_cls_target = cls_targets[0].new_ones([bs, num_pred], dtype=torch.long) * num_cls
         output_box_target = pts_preds.new_zeros(pts_preds.shape)
@@ -209,7 +155,6 @@ class HungarianLinesAssigner(BaseAssigner):
             return None, None, None
 
         # compute the weighted costs
-        breakpoint()
         gt_permute_idx = None # (num_preds, num_gts)
         if self.cost.reg_cost.permute:
             cost, gt_permute_idx = self.cost(preds, gts, ignore_cls_cost)

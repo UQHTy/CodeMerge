@@ -82,7 +82,6 @@ class InstanceBank(nn.Module):
         self.prev_id = 0
 
     def get(self, batch_size, metas=None, dn_metas=None):
-        # breakpoint()
         instance_feature = torch.tile(
             self.instance_feature[None], (batch_size, 1, 1)
         )

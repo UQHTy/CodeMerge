@@ -70,11 +70,13 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
         cls_target,
         box_target,
     ):
+
         bs, num_pred, num_cls = cls_pred.shape
 
         cls_cost = self._cls_cost(cls_pred, cls_target)
-
+        # breakpoint()
         box_target = self.encode_reg_target(box_target, box_pred.device)
+        # box_target[0].shape:  [900, 12]
 
         instance_reg_weights = []
         for i in range(len(box_target)):
@@ -89,6 +91,7 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
                         weights,
                     )
             instance_reg_weights.append(weights)
+        # breakpoint()
         box_cost = self._box_cost(box_pred, box_target, instance_reg_weights)
 
         indices = []
@@ -145,8 +148,17 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
 
     def _box_cost(self, box_pred, box_target, instance_reg_weights):
         bs = box_pred.shape[0]
+        len_box = box_pred.shape[2]
+        if len_box > len(self.reg_weights):
+            self.reg_weights = self.reg_weights+(len_box -  len(self.reg_weights))* [0.0]
         cost = []
+        # breakpoint()
         for i in range(bs):
+            # print("box_pred[i, :, None]==",box_pred[i, :, None].shape)
+            # print("box_target[i][None]==",box_target[i][None].shape)
+            if box_pred[i, :, None].shape[2] != box_target[i][None].shape[2] or len(self.reg_weights) !=box_pred.shape[2]:
+                breakpoint()
+
             if len(box_target[i]) > 0:
                 cost.append(
                     torch.sum(

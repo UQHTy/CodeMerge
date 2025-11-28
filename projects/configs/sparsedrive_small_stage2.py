@@ -10,7 +10,7 @@ log_level = "INFO"
 work_dir = None
 
 total_batch_size = 6
-num_gpus = 1
+num_gpus = 2
 batch_size = total_batch_size // num_gpus
 num_iters_per_epoch = int(length[version] // (num_gpus * batch_size))
 num_epochs = 10
@@ -565,7 +565,7 @@ train_pipeline = [
             'gt_ego_fut_cmd',
             'ego_status',
         ],
-        meta_keys=["T_global", "T_global_inv", "timestamp", "instance_id","filename"],
+        meta_keys=["T_global", "T_global_inv", "timestamp", "instance_id"],
     ),
 ]
 test_pipeline = [
@@ -585,7 +585,7 @@ test_pipeline = [
             "gt_bboxes_3d",
             "gt_labels_3d",
         ],
-        meta_keys=["filename","T_global", "T_global_inv", "timestamp"],
+        meta_keys=["T_global", "T_global_inv", "timestamp"],
     ),
 ]
 eval_pipeline = [
@@ -652,7 +652,7 @@ data_aug_conf = {
 
 data = dict(
     samples_per_gpu=batch_size,
-    workers_per_gpu=32,
+    workers_per_gpu=batch_size,
     train=dict(
         **data_basic_config,
         ann_file=anno_root + "nuscenes_infos_train.pkl",

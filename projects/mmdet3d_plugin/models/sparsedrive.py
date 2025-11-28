@@ -60,7 +60,6 @@ class SparseDrive(BaseDetector):
 
     @auto_fp16(apply_to=("img",), out_fp32=True)
     def extract_feat(self, img, return_depth=False, metas=None):
-        
         bs = img.shape[0]
         if img.dim() == 5:  # multi-view
             num_cams = img.shape[1]
@@ -73,19 +72,6 @@ class SparseDrive(BaseDetector):
             feature_maps = self.img_backbone(img, num_cams, metas=metas)
         else:
             feature_maps = self.img_backbone(img)
-            # new_fms = []
-            # keep_idx = [3, 5]
-            # for fm in feature_maps:
-            #     mask = torch.zeros_like(fm)
-            #     mask[keep_idx, ...] = 1
-            #     # 这里用乘法，返回新 Tensor，不会改动原来的 fm
-            #     new_fm = fm * mask
-            #     new_fms.append(new_fm)
-
-            # feature_maps = tuple(new_fms)
-            
-
-
         if self.img_neck is not None:
             feature_maps = list(self.img_neck(feature_maps))
         for i, feat in enumerate(feature_maps):
@@ -120,14 +106,12 @@ class SparseDrive(BaseDetector):
         return output
 
     def forward_test(self, img, **data):
-
         if isinstance(img, list):
             return self.aug_test(img, **data)
         else:
             return self.simple_test(img, **data)
 
     def simple_test(self, img, **data):
-        # breakpoint()
         feature_maps = self.extract_feat(img)
 
         model_outs = self.head(feature_maps, data)

@@ -128,7 +128,6 @@ class SparseBox3DRefinementModule(BaseModule):
         time_interval: torch.Tensor = 1.0,
         return_cls=True,
     ):
-        # breakpoint()
         feature = instance_feature + anchor_embed
         output = self.layers(feature)
         output[..., self.refine_state] = (
@@ -151,7 +150,6 @@ class SparseBox3DRefinementModule(BaseModule):
         else:
             cls = None
         if return_cls and self.with_quality_estimation:
-            # breakpoint()
             quality = self.quality_layers(feature)
         else:
             quality = None

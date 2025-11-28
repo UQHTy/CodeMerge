@@ -18,7 +18,7 @@ from mmdet.core.bbox.builder import BBOX_SAMPLERS
 from mmdet.core.bbox.builder import BBOX_CODERS
 from mmdet.models import HEADS, LOSSES
 from mmdet.core import reduce_mean
-
+import torch.nn.functional as F
 from ..blocks import DeformableFeatureAggregation as DFG
 
 __all__ = ["Sparse4DHead"]
@@ -197,57 +197,57 @@ class Sparse4DHead(BaseModule):
         attn_mask = None
         dn_metas = None
         temp_dn_reg_target = None
-        if self.training and hasattr(self.sampler, "get_dn_anchors"):
-            if self.gt_id_key in metas["img_metas"][0]:
-                gt_instance_id = [
-                    torch.from_numpy(x[self.gt_id_key]).cuda()
-                    for x in metas["img_metas"]
-                ]
-            else:
-                gt_instance_id = None
-            dn_metas = self.sampler.get_dn_anchors(
-                metas[self.gt_cls_key],
-                metas[self.gt_reg_key],
-                gt_instance_id,
-            )
-        if dn_metas is not None:
-            (
-                dn_anchor,
-                dn_reg_target,
-                dn_cls_target,
-                dn_attn_mask,
-                valid_mask,
-                dn_id_target,
-            ) = dn_metas
-            num_dn_anchor = dn_anchor.shape[1]
-            if dn_anchor.shape[-1] != anchor.shape[-1]:
-                remain_state_dims = anchor.shape[-1] - dn_anchor.shape[-1]
-                dn_anchor = torch.cat(
-                    [
-                        dn_anchor,
-                        dn_anchor.new_zeros(
-                            batch_size, num_dn_anchor, remain_state_dims
-                        ),
-                    ],
-                    dim=-1,
-                )
-            anchor = torch.cat([anchor, dn_anchor], dim=1)
-            instance_feature = torch.cat(
-                [
-                    instance_feature,
-                    instance_feature.new_zeros(
-                        batch_size, num_dn_anchor, instance_feature.shape[-1]
-                    ),
-                ],
-                dim=1,
-            )
-            num_instance = instance_feature.shape[1]
-            num_free_instance = num_instance - num_dn_anchor
-            attn_mask = anchor.new_ones(
-                (num_instance, num_instance), dtype=torch.bool
-            )
-            attn_mask[:num_free_instance, :num_free_instance] = False
-            attn_mask[num_free_instance:, num_free_instance:] = dn_attn_mask
+        # if self.training and hasattr(self.sampler, "get_dn_anchors"):
+        #     if self.gt_id_key in metas["img_metas"][0]:
+        #         gt_instance_id = [
+        #             torch.from_numpy(x[self.gt_id_key]).cuda()
+        #             for x in metas["img_metas"]
+        #         ]
+        #     else:
+        #         gt_instance_id = None
+        #     dn_metas = self.sampler.get_dn_anchors(
+        #         metas[self.gt_cls_key],
+        #         metas[self.gt_reg_key],
+        #         gt_instance_id,
+        #     )
+        # if dn_metas is not None:
+        #     (
+        #         dn_anchor,
+        #         dn_reg_target,
+        #         dn_cls_target,
+        #         dn_attn_mask,
+        #         valid_mask,
+        #         dn_id_target,
+        #     ) = dn_metas
+        #     num_dn_anchor = dn_anchor.shape[1]
+        #     if dn_anchor.shape[-1] != anchor.shape[-1]:
+        #         remain_state_dims = anchor.shape[-1] - dn_anchor.shape[-1]
+        #         dn_anchor = torch.cat(
+        #             [
+        #                 dn_anchor,
+        #                 dn_anchor.new_zeros(
+        #                     batch_size, num_dn_anchor, remain_state_dims
+        #                 ),
+        #             ],
+        #             dim=-1,
+        #         )
+        #     anchor = torch.cat([anchor, dn_anchor], dim=1)
+        #     instance_feature = torch.cat(
+        #         [
+        #             instance_feature,
+        #             instance_feature.new_zeros(
+        #                 batch_size, num_dn_anchor, instance_feature.shape[-1]
+        #             ),
+        #         ],
+        #         dim=1,
+        #     )
+        #     num_instance = instance_feature.shape[1]
+        #     num_free_instance = num_instance - num_dn_anchor
+        #     attn_mask = anchor.new_ones(
+        #         (num_instance, num_instance), dtype=torch.bool
+        #     )
+        #     attn_mask[:num_free_instance, :num_free_instance] = False
+        #     attn_mask[num_free_instance:, num_free_instance:] = dn_attn_mask
 
         anchor_embed = self.anchor_encoder(anchor)
         if temp_anchor is not None:
@@ -313,7 +313,7 @@ class Sparse4DHead(BaseModule):
                         and dn_id_target is not None
                     ):
                         (
-                            instance_feature,
+                            instance_feature, 
                             anchor,
                             temp_dn_reg_target,
                             temp_dn_cls_target,
@@ -389,6 +389,7 @@ class Sparse4DHead(BaseModule):
                 valid_mask,
                 dn_id_target,
             )
+        # breakpoint()
         output.update(
             {
                 "classification": classification,
@@ -420,12 +421,21 @@ class Sparse4DHead(BaseModule):
         for decoder_idx, (cls, reg, qt) in enumerate(
             zip(cls_scores, reg_preds, quality)
         ):
-            reg = reg[..., : len(self.reg_weights)]
+            
+            len_box = reg.shape[2]
+            if len_box > len(self.reg_weights):
+                self.reg_weights = self.reg_weights+(len_box -  len(self.reg_weights))* [0.0]
+
+            # reg = reg[..., :12]
+            # cls_scores: 6* [8, 900, 10]
+            # reg_preds: 6* [8, 900, 11]
+            # quality 6* [8, 900, 2]
+            # breakpoint()
             cls_target, reg_target, reg_weights = self.sampler.sample(
                 cls,
                 reg,
-                data[self.gt_cls_key],
-                data[self.gt_reg_key],
+                data[self.gt_cls_key],  # 8 * [*] gt_labels_3d
+                data[self.gt_reg_key], #8 * [*, 9]
             )
             reg_target = reg_target[..., : len(self.reg_weights)]
             reg_target_full = reg_target.clone()
@@ -440,7 +450,7 @@ class Sparse4DHead(BaseModule):
                 mask = torch.logical_and(
                     mask, cls.max(dim=-1).values.sigmoid() > threshold
                 )
-
+            # breakpoint()
             cls = cls.flatten(end_dim=1)
             cls_target = cls_target.flatten(end_dim=1)
             cls_loss = self.loss_cls(cls, cls_target, avg_factor=num_pos)
