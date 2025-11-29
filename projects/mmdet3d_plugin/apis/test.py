@@ -9,7 +9,6 @@ import shutil
 import tempfile
 import time
 import os
-
 import torch.nn.functional as F
 import mmcv
 import torch
@@ -36,11 +35,10 @@ from mmcv.runner import (
     wrap_fp16_model,
 )
 from mmcv.runner import build_optimizer
-# SAVE_CKPT = [16,32, 2100]
-# # SAVE_CKPT_INTERVAL = 80
-# SAVE_CKPT_INTERVAL= 112
+# from fvcore.nn import FlopCountAnalysis, flop_count_table
 
 SAVE_CKPT = [0,2, 4,8, 16,32,616,656,672, 2100]
+# SAVE_CKPT_INTERVAL = 16
 SAVE_CKPT_INTERVAL = 80
 
 
@@ -78,16 +76,8 @@ def loadCheckpoint_intoModel(checkpoint, model):
     """
     modelParameters_names = set(checkpoint.keys())
     modelStateDict_keys = set(model.state_dict().keys())
-    # breakpoint()
+    # #breakpoint()
     assert modelParameters_names.issubset(modelStateDict_keys)
-    # The encoder and decoder embedding tokens are always tied to the shared weight and so should never be a paremeter
-    # assert set(
-    #     [
-    #         "transformer.decoder.embed_tokens.weight",
-    #         "transformer.encoder.embed_tokens.weight",
-    #     ]
-    # ).issubset(modelStateDict_keys.difference(modelParameters_names))
-
     # Must tie the encoder and decoder embeddings to the shared weight if the shared weight is a parameter.
     if "transformer.shared.weight" in checkpoint:
         checkpoint["transformer.decoder.embed_tokens.weight"] = checkpoint[
@@ -113,7 +103,7 @@ def aggregate_model(main_model,model_path_list, pretrained_model,indices,cfg_mod
     agg_model = None
     weight_i = 0
     agg_model = []
-    # breakpoint()
+    # #breakpoint()
     # pretrained_model_path = '/home/huitong/YHDiskB/code/MOS/MOS_TTA_3D_DET/ckpts/waymo_pretrain/checkpoint_epoch_20.pth'
     # pretrained_model = build_network(model_cfg=cfg.MODEL,num_class=len(cfg.CLASS_NAMES),dataset=dataset)
     # pretrained_model.load_params_from_file(filename=pretrained_model_path, logger=logger,report_logger=False, to_cpu=dist)
@@ -123,9 +113,9 @@ def aggregate_model(main_model,model_path_list, pretrained_model,indices,cfg_mod
     ptm_check= pretrained_model.state_dict()
     flat_ptm = state_dict_to_vector(ptm_check, remove_keys=[])
     sorted_numbers = {int(num) for key in model_path_list.keys() for num in re.findall(r'\d+', key)}
-    # breakpoint()
+    # #breakpoint()
     if len(model_path_list)>5:
-        # breakpoint()
+        # #breakpoint()
         selected_keys = [list(model_path_list.keys())[i] for i in indices]
         numbers = [int(key.split('_')[0]) for key in selected_keys]
         sorted_numbers = sorted(numbers)
@@ -134,7 +124,7 @@ def aggregate_model(main_model,model_path_list, pretrained_model,indices,cfg_mod
     for model_path in sorted(sorted_numbers):
         
         # past_model = build_network(model_cfg=cfg.MODEL,num_class=len(cfg.CLASS_NAMES),dataset=dataset)
-        model_path1 = '/home/uqhyan14/code/SparseDrive/work_dirs/ckpts/checkpoint_iter_' + str(model_path) + '.pth'
+        model_path1 = '/home/uqhyan14/code/Sparse_stage2/work_dirs/ckpts/checkpoint_iter_' + str(model_path) + '.pth'
         # past_model.load_params_from_file(filename=model_path1, logger=logger,report_logger=False, to_cpu=dist)
         past_model = build_detector(cfg_model, test_cfg=test_cfg)
         checkpoint = load_checkpoint(past_model, model_path1, map_location="cpu")
@@ -145,6 +135,8 @@ def aggregate_model(main_model,model_path_list, pretrained_model,indices,cfg_mod
         #     param.data.mul_(model_weights[0].data)
         pretrained_state_dict0=past_model.state_dict()
         agg_model.append(pretrained_state_dict0)
+        del past_model; torch.cuda.empty_cache()
+        
 
     # ft_checks = [torch.load(fp) for fp in model_path_list]
     flat_ft = torch.vstack([state_dict_to_vector(check, remove_keys=[]) for check in agg_model]
@@ -156,7 +148,7 @@ def aggregate_model(main_model,model_path_list, pretrained_model,indices,cfg_mod
     resolve = "mass"
     merge = "dis-mean"
     merged_tv = merge_methods(reset_type,tv_flat_checks,reset_thresh=reset_thresh,resolve_method=resolve,merge_func=merge,)
-    # breakpoint()
+    # #breakpoint()
     merged_check = flat_ptm +  0.85* merged_tv
     reference_state_dict = agg_model[0]
     merged_checkpoint = vector_to_state_dict(
@@ -165,7 +157,7 @@ def aggregate_model(main_model,model_path_list, pretrained_model,indices,cfg_mod
     for k, v in merged_checkpoint.items():
         new_key = 'module.' + k
         new_state_dict[new_key] = v
-    # breakpoint()
+    # #breakpoint()
     agg_model = loadCheckpoint_intoModel(new_state_dict, pretrained_model)
 
 
@@ -180,6 +172,17 @@ def aggregate_model(main_model,model_path_list, pretrained_model,indices,cfg_mod
     return agg_model
 
 
+class TestTimeModel(nn.Module):
+    def __init__(self, detector):
+        super().__init__()
+        self.backbone = detector.extract_feat
+        self.head     = detector.head
+
+    def forward(self, imgs, metas):
+        # 只关心检测分支的前向
+        feats = self.backbone(imgs)
+        det_out, _, _, _ = self.head(feats, metas)
+        return det_out
 
 def custom_multi_gpu_test(
     model,
@@ -192,7 +195,7 @@ def custom_multi_gpu_test(
     test_cfg = None
 
 ):
-    # breakpoint()
+    # #breakpoint()
     # … 前面不变 …
     model.eval()
     pretrained_model.eval()
@@ -200,50 +203,43 @@ def custom_multi_gpu_test(
     mask_results = []
     dataset = data_loader.dataset
     rank, world_size = get_dist_info()
-    # if rank == 0:
-    prog_bar = mmcv.ProgressBar(len(dataset))
+    if rank == 0:
+        prog_bar = mmcv.ProgressBar(len(dataset))
         
     time.sleep(2)  # This line can prevent deadlock problem in some cases.
     have_mask = False
 
     if pseudo_det:
         model.train()
-        # for m in model.modules():
-        #     if isinstance(m, nn.BatchNorm2d):
-        #         m.eval()
+        for m in model.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eval()
 
-        # —— 3) 解冻 backbone 中的所有 BatchNorm2d 的 weight 和 bias，
-        #     并保证它们在 train 模式下更新 running_mean/var
-        # import torch.nn as nn
-        # for m in model.module.img_backbone.modules():
-        #     if isinstance(m, nn.BatchNorm2d):
-        #         m.train()  # 让 BN 更新 running stats
-        #         if m.weight is not None:
-        #             m.weight.requires_grad = True
-        #         if m.bias is not None:
-        #             m.bias.requires_grad = True
-
-        # —— 4) 同样，你还可以解冻 neck 或 det_head 的全部参数
-        # （这里我只举 backbone BN 的例子，det_head/ne​ck 根据需要自己控制）
-        det_params      = list(model.module.head.det_head.parameters())
-        neck_params     = list(model.module.img_neck.parameters())
-        img_backbone_params = list(model.module.img_backbone.parameters())
-        trainable_params = det_params + neck_params + img_backbone_params
-        # —— 5) 最终把所有 requires_grad=True 的参数拼到一起
-        # trainable_params = []
-        # for p in det_params + neck_params + list(model.module.img_backbone.parameters()):
-        #     if p.requires_grad:
-        #         trainable_params.append(p)
-        optimizer = optim.AdamW(trainable_params, lr=1e-7, weight_decay=1e-3) #5e-6,1e-6
+        # det_params = list(model.module.head.det_head.parameters())
+        det_params = list(model.module.img_backbone.parameters())
+        optimizer = optim.AdamW(det_params, lr=1e-7, weight_decay=1e-3) #5e-6,
         torch.set_grad_enabled(True)
     else:
         model.eval()
         torch.set_grad_enabled(False)
 
+    # start_evt = torch.cuda.Event(enable_timing=True)
+    # end_evt   = torch.cuda.Event(enable_timing=True)
+
     model_bank_feat = {}
     for i, data in enumerate(data_loader):
+
+
+#####################################FPS########################################################
+        # torch.cuda.synchronize()         # 等待 GPU 上前面的操作完成
+        # start_evt.record()
+        # ———— flops ————########################################################
+        # torch.cuda.synchronize()              # 保证前面所有 CUDA op 完成
+        # t_start = time.time()
+        #########################################################
         cur_it = prog_bar.completed
         samples_seen = int(cur_it)*int(8)
+
 
         # ———— 伪标签微调分支 ————
         if pseudo_det:
@@ -252,9 +248,8 @@ def custom_multi_gpu_test(
             scattered = scatter(data, [device])[0]
             imgs = scattered['img']
             metas = scattered
-            # breakpoint()
 
-            ckpt_dir = Path("/home/uqhyan14/code/SparseDrive/work_dirs/ckpts")
+            ckpt_dir = Path("/home/uqhyan14/code/Sparse_stage2/work_dirs/ckpts")
             pth_files = list(ckpt_dir.glob("*.pth"))
             count = len(pth_files)
             super_model = None
@@ -263,14 +258,11 @@ def custom_multi_gpu_test(
                     [k for k in model_bank_feat.keys() if k.endswith("instance_features")],
                     key=lambda x: int(x.split('_')[0])
                 )
-                # device = torch.device("cuda:0")
-                
-                device = model_bank_feat['0_instance_features'].device
-                # breakpoint()
+                device = torch.device("cuda:0")
                 W_rand = torch.randn(230400, 1024).to(device)
                 RP = []
                 for i, key_i in enumerate(shared_feat_keys):
-                    shared_feature = model_bank_feat[key_i].reshape(1, 900*256).squeeze(0).to(device)
+                    shared_feature = model_bank_feat[key_i].reshape(1, 900*256).squeeze(0)
                     Features_h= shared_feature @ W_rand
                     # RP.append(shared_feature.cpu().detach().numpy())
                     RP.append(Features_h)
@@ -279,7 +271,7 @@ def custom_multi_gpu_test(
                 if len(RP)>5:
                     K = 5
                     lambda_damping = 1e-3 
-                    # breakpoint()
+                    # #breakpoint()
                     fingerprints = torch.stack(RP, dim=0) # [N,1024]
                     F = fingerprints - fingerprints.mean(dim=0, keepdim=True) #[N, 1024]
                     N, D = F.shape
@@ -295,10 +287,11 @@ def custom_multi_gpu_test(
             # b) forward 拿到 det_out
             if super_model is not None:
                 print("SUPER_MODEL tta")
-                # breakpoint()
+                # #breakpoint()
                 feats = super_model.module.extract_feat(imgs)#weak
                 det_out, _, _, _ = super_model.module.head(feats, metas)
             else:
+                # #breakpoint()
                 feats = model.module.extract_feat(imgs)
                 det_out, _, _, _ = model.module.head(feats, metas)
 
@@ -309,7 +302,7 @@ def custom_multi_gpu_test(
 
             feats1 = pretrained_model.module.extract_feat(imgs)
             det_out1, _, _, _ = pretrained_model.module.head(feats1, metas)
-            # breakpoint()
+            # #breakpoint()
             # c) 从最后一层 decoder 取出 scores & boxes
             pseudo_boxes3d = []
             pseudo_labels3d = []
@@ -344,8 +337,8 @@ def custom_multi_gpu_test(
                 'quality':       det_out0['quality'],
             }
             model.train()
-            # breakpoint()
-
+            # #breakpoint()
+  
             # h) 计算 loss 并反向更新
             optimizer.zero_grad()
             loss_dict = model.module.head.det_head.loss(det_out_trunc, pseudo_data)
@@ -353,21 +346,40 @@ def custom_multi_gpu_test(
             # print("loss_dict==",loss_dict)
             print("loss==",loss)
             loss.backward()
-
             optimizer.step()
-        # ———— 常规推理 & 收集 ————
+
+
+#####################################FPS########################################################
+        # end_evt.record()
+        # # 再次同步，等结束事件真正写入
+        # torch.cuda.synchronize()
+
+        # # 计算毫秒
+        # elapsed_ms = start_evt.elapsed_time(end_evt)
+        # fps = 1000.0 / elapsed_ms
+        # print(f"Single iteration time: {elapsed_ms:.2f} ms, FPS: {fps:.2f}")
+        # #breakpoint()
+        # ———— flops ————########################################################
+        # torch.cuda.synchronize()              # 等待当前 iteration 的 CUDA op 完成
+        # t_end = time.time()
+        # iter_time = t_end - t_start
+        # print(f"[Iter {i}] time: {iter_time:.3f} s")
+        #########################################################
         model.eval()
-        # breakpoint()
+        # #breakpoint()
         if (samples_seen in SAVE_CKPT or samples_seen % SAVE_CKPT_INTERVAL==0):
-            # breakpoint()
+            # #breakpoint()
             # ckpt_name = "/home/uqhyan14/clip_retrain/end-to-end/test/SparseDrive/work_dirs/ckpts" / ('checkpoint_iter_%d' % samples_seen)
             ckpt_name = os.path.join(
-                "/home/uqhyan14/code/SparseDrive/work_dirs/ckpts",
+                "/home/uqhyan14/code/Sparse_stage2/work_dirs/ckpts",
                 f"checkpoint_iter_{samples_seen}.pth"
             )
+
             save_checkpoint(model, ckpt_name)
             
             model_bank_feat[str(samples_seen)+'_instance_features'] = det_out1["instance_feature"]
+
+
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
 
@@ -389,6 +401,10 @@ def custom_multi_gpu_test(
             for _ in range(batch_size * world_size):
                 prog_bar.update()
 
+
+
+    avg_fps = total_images / (total_time_ms / 1000.0)
+    print(f"Avg FPS (CUDA timing): {avg_fps:.2f}")
     # ———— 多卡结果汇总 ————
     if gpu_collect:
         bbox_results = collect_results_gpu(bbox_results, len(dataset))
@@ -437,7 +453,9 @@ def custom_multi_gpu_test(
 #         with torch.no_grad():
 #             result = model(return_loss=False, rescale=True, **data)
 #             # encode mask results
-#             # breakpoint()
+#             # #breakpoint()
+#             # if i == 100:
+#             #     break
 #             if isinstance(result, dict):
 #                 if "bbox_results" in result.keys():
 #                     bbox_result = result["bbox_results"]
@@ -531,3 +549,4 @@ def collect_results_cpu(result_part, size, tmpdir=None):
 
 def collect_results_gpu(result_part, size):
     collect_results_cpu(result_part, size)
+
